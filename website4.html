@@ -1,0 +1,168 @@
+
+<html>
+	<head>
+		<title>Bootstrap Case</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
+		<link rel="stylesheet" href="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css">
+		<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.0/jquery.min.js"></script>
+		<script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+		<script type="text/javascript">
+			var Mode;
+			var State
+			if (!("WebSocket" in window))
+	         {
+	            // The browser doesn't support WebSocket
+	            alert("WebSocket NOT supported by your Browser! \n Stop using a toaster to browse the internet.");
+	         }
+	         //alert("WebSocket is supported by your Browser!");
+	         var ws = new WebSocket("ws://localhost:8521");
+
+	         ws.onmessage = function (evt)
+	         {
+	            var received_msg = evt.data;
+	            var State = JSON.parse(received_msg);
+	            alert("Received message: " + received_msg);
+	            
+	            update_InfoJumbotron();
+	            if (State['ControlMode']=="Disabled")
+	            {
+	            	make_alert_disappear();
+	            }
+	            else
+	            {
+	            	update_alert();
+	            }
+
+	         };
+
+	         function test()
+	         {
+	         	make_alert_disappear();
+
+	         	alert("test function completed")
+	         }
+
+
+	         update_alert = function()
+	         {
+	         	document.getElementById("Alert").open();
+	         	document.getElementById("Alert").InnerHTML = State['ControlAlertString'];
+	         }
+
+	         make_alert_disappear = function()
+	         {
+
+	         	//document.getElementById("Alert").hide();
+	         	$
+	         }
+
+	         update_InfoJumbotron = function()
+	         {
+	     //     	document.getElementById("InfoJumbotron").innerHTML = 
+	     //     	"<h2>
+						// 	Status Report
+						// </h2>
+						// <p>"
+						// + State['InfoString'] +
+						// "</p>";
+	         }
+
+	         ws.onclose = function()
+	         {
+	            // websocket is closed.
+	            //alert("Websocket closed!   I don't know what to do without my websocket!\nI'm pretty much useless now :'(  ");
+	         };
+		</script>
+	</head>
+	<body>
+		<div class="container-fluid">
+			<div class="row">
+				<div class="col-md-12">
+					<button onclick="test();">Blabla</button>
+					<!-- <div id="Alert" class="alert alert-success">
+						<h4>
+							Alert!
+						</h4> <strong>Warning!</strong> Best check yo self, you're not looking too good. <a href="#" class="alert-link">alert link</a>
+					</div> -->
+					<div class="jumbotron" id="InfoJumbotron">
+						<h2>
+							Status Report
+						</h2>
+						<p>
+							This should have been replaced with a InfoString
+						</p>
+						
+						
+					</div>
+					<div class="tabbable" id="tabs-903533">
+						<ul class="nav nav-tabs">
+							<li class="active">
+								<a href="#panel-Auto" data-toggle="tab">Section 1</a>
+							</li>
+							<li>
+								<a href="#panel-Manual" data-toggle="tab">Section 2</a>
+							</li>
+						</ul>
+						<div class="tab-content">
+							<div class="tab-pane fade in active" id="panel-Auto">
+								<div class="row">
+									<div class="col-xs-2 col-md-1">
+										 
+										<div class="btn-group-vertical">
+											<button id="AutoTempUp"   type="button" class="btn btn-primary">+</button>
+											<button id="AutoTempDown" type="button" class="btn btn-primary">-</button>
+										</div>
+									</div>
+									<div class="col-xs-4 col-md-1">
+										<p id="Temp1"><font size="8">Temp1</font></p>
+									</div>
+								</div>
+								<div class="row">
+									<div class="col-xs-12 col-md-3">
+										<button id="AutoOpenClose" type="button" class="btn btn-lg btn-block btn-default active">
+											Default
+										</button>
+									</div>
+								</div>
+							</div>
+							<div class="tab-pane fade" id="panel-Manual">
+								<div class="row">
+									<div class="col-xs-2 col-md-1">
+										 
+										<div class="btn-group-vertical">
+											<button id="ManualTempUp"   type="button" class="btn btn-primary">+</button>
+											<button id="ManualTempDown" type="button" class="btn btn-primary">-</button>
+										</div>
+									</div>
+									<div class="col-xs-10 col-md-2">
+										<p id="Temp2"><font size="8">XX°C</font></p>
+									</div>
+									<div class="col-xs-3-offset-7 col-md-2">
+										 <div class="col-xs-10 col-md-1">
+											<p id="Flow2" align="right"><font size="8">100%</font></p>
+										</div>
+									</div>
+									<div class="col-xs-2 col-md-1">
+										<div class="btn-group-vertical">
+											<button id="ManualFlowUp"   type="button" class="btn btn-primary">+</button>
+											<button id="ManualFlowdown" type="button" class="btn btn-primary">-</button>
+										</div>
+									</div>
+								</div>
+								<div class="row">
+									<div class="col-md-6">
+										<button id="ManualOpenClose" type="button" class="btn btn-lg btn-block btn-default active">
+											Default
+										</button>
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+					
+				</div>
+			</div>
+		</div>
+	</body>
+</html>

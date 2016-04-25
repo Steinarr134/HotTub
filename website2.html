@@ -1,0 +1,140 @@
+<!DOCTYPE HTML>
+<!-- Latest compiled and minified CSS -->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7" crossorigin="anonymous">
+
+<!-- Optional theme -->
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap-theme.min.css" integrity="sha384-fLW2N01lMqjakBkx3l/M9EahuwpSfeNvV63J5ezn3uZzapT0u7EYsXMjQV+0En5r" crossorigin="anonymous">
+
+<!-- Latest compiled and minified JavaScript -->
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js" integrity="sha384-0mSbJDEHialfmuBBQP6A4Qrprq5OVfW37PRR3j5ELqxss1yVqOtnepnHVP9aJ7xS" crossorigin="anonymous"></script>
+
+<html>
+   <head>
+
+      <script type="text/javascript">
+
+         var Full = false;
+         var Temp = 37;
+         var g_Full = false;
+         var g_Temp = 37;
+         if (!("WebSocket" in window))
+         {
+            // The browser doesn't support WebSocket
+            alert("WebSocket NOT supported by your Browser! \n Stop using a toaster to browse the internet.");
+         }
+         //alert("WebSocket is supported by your Browser!");
+
+         // Let us open a web socket
+         var ws = new WebSocket("ws://85.220.14.166:8521");
+
+         ws.onopen = function()
+         {
+            // we'll do nothing on opening websocket
+
+         };
+
+         send_goal_info = function()
+         {
+            //alert("sending...")
+
+            var text = '{"Full":' + g_Full + ', "Flag":"request"' + ',"Temp":' + g_Temp + '}'
+            //ws.send(JSON.stringify(text));
+            ws.send(text);
+         }
+
+         fill_empty = function()
+         {
+            //console.log("fillempty: " + document.getElementById('Fill_Empty').innerHTML);
+            update_goal_info(!g_Full, g_Temp)
+         }
+
+         update_current_info = function(full, temp)
+         {
+            Full = full;
+            Temp = temp;
+            //console.log("sdlk");
+            document.getElementById("Full").innerHTML = "The HotTub is: " + (!full ? "Empty" : "Full");
+            document.getElementById("Temp").innerHTML =  "HotTub Temperature: " + temp + " C";
+         }
+
+         update_goal_info = function(full, temp)
+         {
+            g_Temp = temp;
+            g_Full = full;
+            document.getElementById("Goal").innerHTML = "Trying to become: " + (!g_Full ? "Empty" : "Full and " + g_Temp + " C");
+            var a = (!g_Full ? "Fill" : "Empty");
+            //console.log("a: " + a);
+            document.getElementById('Fill_Empty').innerHTML = a;
+            send_goal_info();
+         }
+
+         change_g_temp = function(a)
+         {
+            update_goal_info(g_Full, g_Temp+a)
+         }
+
+         ws.onmessage = function (evt)
+         {
+            console.log("lkjf");
+            var received_msg = evt.data;
+            console.log("djk2");
+            console.log(typeof received_msg);
+            console.log("we got " + received_msg);
+            var received_json = JSON.parse(received_msg);
+            var r_Full = received_json['Full'];
+            var r_Temp = received_json['Temp'];
+            var r_Flag = received_json['Flag'];
+            console.log("Received message: " + received_msg);
+            if (r_Flag == "current")
+            {
+               update_current_info(r_Full, r_Temp);
+            }
+            else if (r_Flag == "request")
+            {
+               update_goal_info(r_Full, r_Temp)
+            }
+            
+         };
+
+         ws.onclose = function()
+         {
+            // websocket is closed.
+            alert("Websocket closed!   I don't know what to do without my websocket!\nI'm pretty much useless now :'(  ");
+         };
+
+         window.onload = function()
+         {
+            //update_goal_info(g_Full, g_Temp);
+            //document.getElementById('Fill_Empty').innerHTML = "Fill";
+         }
+
+
+         
+      </script>
+
+   </head>
+   <body>
+
+      <div id="sse">
+
+         <p id="Full">The HotTub is full: </p>
+
+         <p id="Temp">HotTub current Temperature: </p>
+
+         <p id="Goal">Trying to become: </p>
+
+         <button type="button"
+         onclick="change_g_temp(-1)">
+         Down</button>
+         <button type="button"
+         onclick="change_g_temp(1)">
+         Up</button>
+
+         <button type="button"
+         id="Fill_Empty"
+         onclick="fill_empty()">
+         Fill</button>
+      </div>
+
+   </body>
+</html>
