@@ -21,8 +21,8 @@ import select
 import atexit
 import socket
 
-Current = ""
-Request = ""
+Current = '{"Type":"Current" , "InfoString":"BlaBlaBlaInfoSomethingC"}'
+Request = '{"Type":"Request" , "AutoTemp":35 , "ManualTemp":37 , "ManualFlow":0 ,"ManualValve":false}'
 
 
 def dprint(s):
@@ -98,11 +98,11 @@ class MyServerProtocol(WebSocketServerProtocol):
 from twisted.python import log
 from twisted.internet import reactor
 
-logfile = open('/home/pi/Documents/HotTub/WebsocketLog1.txt', 'w')
+# logfile = open('/home/pi/Documents/HotTub/WebsocketLog1.txt', 'w')  # uncomment!
+#
+# log.startLogging(logfile)
 
-log.startLogging(logfile)
-
-factory = WebSocketServerFactory(u"ws://85.220.14.166:8521")
+factory = WebSocketServerFactory(u"ws://localhost:8521") # breyta i 85.220.14.166
 factory.protocol = MyServerProtocol
 # factory.setProtocolOptions(maxConnections=2)
 

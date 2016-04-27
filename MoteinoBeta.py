@@ -2,6 +2,7 @@ import serial
 import threading
 import time
 import sys
+import logging
 __author__ = 'SteinarrHrafn'
 
 """
@@ -25,8 +26,12 @@ mynetwork.start_listening()
 
 mynetwork.send('TestDevice', {'Command': 123, 'Something': 456})
 """
+# set logging configuration to DEBUG
+# a python module should not do this but we are still in beta mode
+logging.basicConfig(level=logging.DEBUG)
 
 
+# The previous debugging method
 def dprint(s, newline=True):  # print for debugging purposes
     if True:
         sys.stdout.write(s + ('\n' if newline else ''))
@@ -34,8 +39,8 @@ def dprint(s, newline=True):  # print for debugging purposes
 
 def _hexprints(n):
     """
-    Returns a hex sting of lengt 2 that represents the number n
-    :raises ValueRrror if 0 > n or n > 255
+    Returns a hex sting of length 2 that represents the number n
+    :raises ValueError if 0 > n or n > 255
     :param n: int
     :return: string
     """
@@ -57,7 +62,6 @@ def _hex2dec(s):
     if not len(s) == 2:
         raise ValueError("s(" + str(s) + ") did not fit for _hex2dec")
     else:
-        # debug_print("S: " + s)
         return int(s, base=16)
 
 
@@ -162,6 +166,8 @@ class Array(DataType):
     """
     A class to describe the array datatype, requires the subtype to be defined
     """
+    ReturnType = list
+
     def __init__(self, subtype, n):
         if not issubclass(subtype, DataType):
             raise ValueError("problem in Array.__init__(), subtype is not a Datatype!")
@@ -170,8 +176,8 @@ class Array(DataType):
         self.NofBytes = subtype.NofBytes*n
 
     def hexprints(self, l=None):
-
-        # untested code:
+        # if we receive a string then parse it to a list
+        # of char values
         if type(l) is str:
             s = str(l)
             l = list()
@@ -180,7 +186,6 @@ class Array(DataType):
         returner = str()
         if not l:
             l = list()
-        # /untested code
         while len(l) < self.N:
             l.append(0)
         for L in l:
@@ -210,7 +215,7 @@ types = {
 }
 
 
-class Struct:
+class Struct(object):
     """
     This is a class for parsing a struct through a serial port
     example:
@@ -226,6 +231,7 @@ class Struct:
     def __init__(self, structstring):
         self.Parts = list()
         self.NofBytes = 0
+        self.StructString = structstring
         lines = structstring.rstrip(';').split(';')  # remove the last ';' and split by the other ones
         for line in lines:
             temp = line.rsplit(' ', 1)  # split by whitespaces
@@ -234,6 +240,13 @@ class Struct:
                 self.Parts.append((Array(types[temp[0]], int(ttemp[1][:-1])), ttemp[0]))
             else:
                 self.Parts.append((types[temp[0]], temp[1]))
+
+        self.Parts_dict = dict()
+        for (Type, Name) in self.Parts:
+            self.Parts_dict[Name] = Type
+
+    def __str__(self):
+        return "Struct: " + self.StructString
 
     def encode(self, values_dict):
         """
@@ -270,23 +283,71 @@ class Struct:
         return returner
 
 
-class Device:
+class Device(object):  # maybe rename this to Node?
 
-    def __init__(self, network, _id, structstring, name):
+    def __init__(self, network, _id, structstring, name=None):
         self.ID = _id
         self.Struct = Struct(structstring)
-        self.LastSent = dict()
+        self.LastSent = {a[1]:None for a in self.Struct.Parts}
+        print self.LastSent
         self.Network = network
-        self.Name = name
+        self.Name = '' if name is None else name
+        self.Translations = dict()
+        self.ReceiveFunction = network.receive
+        self.AckFunction = network.ack
+        self.NoAckFunction = network.no_ack
 
-    def send2radio(self, diction, expect_response=False, max_wait=None):
+    def __str__(self):
+        return "Device: " + self.Name + " with id: " + str(self.ID) \
+               + " and " + str(self.Struct)
+
+    def bind(self, receive=None, ack=None, no_ack=None):
+        if receive is not None:
+            self.ReceiveFunction = receive
+        if ack is not None:
+            self.AckFunction = ack
+        if no_ack is not None:
+            self.NoAckFunction = no_ack
+
+    def _translate(self, key, value):
+        if key in self.Translations:
+            # print "key is in Translations"
+            if value in self.Translations[key]:
+                # print "value is in Translations[key], returning: " + str(self.Translations[key][value])
+                return self.Translations[key][value]
+        # print "no translation, just returning value: " + str(value)
+        return value
+
+    def add_translation(self, part, *args):
+        if part not in self.Translations:
+            self.Translations[part] = dict()
+        for (key, value) in args:
+            self.Translations[part][key] = value
+
+    def send(self, *args, **kwargs):
         """
-        :param max_wait: int
-        :param diction: dict
-        :param expect_response: bool
         :return: None
         """
-        self.Network.ResponseExpected = expect_response
+        if 'expect_response' in kwargs:
+            self.Network.ResponseExpected = kwargs['expect_response']
+        if 'max_wait' in kwargs:
+            max_wait = kwargs['max_wait']
+        else:
+            max_wait = None
+        if 'diction' in kwargs:
+            diction = kwargs['diction']
+        else:
+            diction = dict()
+        for i, arg in enumerate(args):
+            part = self.Struct.Parts[i][1]
+            diction[part] = self._translate(part, arg)
+
+        for (key, value) in kwargs.items():
+            if key in self.Struct.Parts_dict:
+                diction[key] = self._translate(key, value)
+
+        logging.info("sending: " + str(diction))
+
         self.LastSent = diction
         self.Network.send2radio(send2id=self.ID, payload=self.Struct.encode(diction), max_wait=max_wait)
 
@@ -296,23 +357,28 @@ class Device:
         :return: None
         """
         d = self.Struct.decode(payload)
+        logging.info(str(d) + " received from " + str(self))
         d['SenderID'] = self.ID
-        d['Sender'] = self.Name
+        d['SenderName'] = self.Name
+        d['Sender'] = self
         self.Network.RadioIsBusy = False
         if not self.Network.ReceiveWithSendAndReceive:
-            self.Network.receive(self, d)
+            if self.ReceiveFunction is None:
+                self.Network.receive(self, d)
+            else:
+                self.ReceiveFunction(d)
         else:
             self.Network.LastReceived = d
             self.Network.ReceiveWithSendAndReceive = False
 
-    def send(self, diction, expect_response=False, max_wait=None):
-        self.Network.send(self.Name,
-                          diction=diction,
-                          expect_response=expect_response,
-                          max_wait=max_wait)
-
-    def send_and_receive(self, diction):
-        return self.Network.send_and_receive(self.Name, diction=diction)
+    def send_and_receive(self, *args, **kwargs):
+        self.Network.ReceiveWithSendAndReceive = True
+        temp = id(self.Network.LastReceived)
+        self.send(*args, **kwargs)
+        if id(self.Network.LastReceived) != temp:
+            return self.Network.LastReceived
+        else:
+            return None
 
 
 class BaseMoteino(Device):
@@ -320,18 +386,19 @@ class BaseMoteino(Device):
         Device.__init__(self, network, 0xFF, "byte Sender;bool AckReceived", 'BaseMoteino')
 
     def send2parent(self, payload):
-        dprint("BaseMoteino.send2parent")
         d = self.Struct.decode(payload)
         if d['Sender'] not in self.Network.devices:
             raise ValueError("Sender not in known devices")
         sender = self.Network.devices[d['Sender']]
         if d['AckReceived']:
+            logging.info("Ack received when " + str(sender.LastSent) + " was sent")
             if not self.Network.ResponseExpected:
                 self.Network.RadioIsBusy = False
-            self.Network.ack(sender, sender.LastSent)
+            self.Network.ack(sender.Name, dict(sender.LastSent))
         else:
+            logging.warning("No ack received when " + str(sender.LastSent) + " was sent")
             self.Network.RadioIsBusy = False
-            self.Network.no_ack(sender, sender.LastSent)
+            self.Network.no_ack(sender, dict(sender.LastSent))
 
 
 class Send2ParentThread(threading.Thread):
@@ -353,9 +420,9 @@ class Send2ParentThread(threading.Thread):
 
         sender_id = _hex2dec(self.Incoming[:2])
         if sender_id not in self.Network.devices:
-            print "Something must be wrong because BaseMoteino just recieved a message " \
-                  "from moteino with ID: " + str(sender_id) + " but no such device has " \
-                  "been registered to the network. Btw the raw data was: " + self.Incoming
+            print("Something must be wrong because BaseMoteino just recieved a message "
+                  "from moteino with ID: " + str(sender_id) + " but no such device has "
+                  "been registered to the network. Btw the raw data was: " + self.Incoming)
         else:
             sender = self.Network.devices[sender_id]
             sender.send2parent(self.Incoming[2:])
@@ -375,19 +442,21 @@ class ListeningThread(threading.Thread):
         self.Listen2.close()
 
     def run(self):
+        logging.info("Serial listening thread started")
         while True:
             try:
                 incoming = self.Listen2.readline()
-            except serial.SerialException:
-                print "OH NO! serial listening thread exited, things are not working!"
+            except serial.SerialException as e:
+                logging.warning("serial exception ocuurred: " + str(e))
                 break
-            dprint("Serialport said: '" + incoming + "'")
-            incoming.rstrip('\n')  # nota [:-1]?
+            incoming.rstrip('\n')  # use [:-1]?
+            logging.debug("Serial port said: " + incoming)
             fire = Send2ParentThread(self.Network, incoming)
             fire.start()
+        logging.info("Serial listening thread shutting down")
 
 
-class MoteinoNetwork:
+class MoteinoNetwork(object):
     """
     This is the class that user should inteface with. It is a module that
     ables the user to communicate with moteinos through a top level script.
@@ -429,8 +498,8 @@ class MoteinoNetwork:
                                     bytesize=bytesize,
                                     writeTimeout=0.5)
         # Call readline to wait for BaseMoteino to start up
-        dprint("Waiting for BaseMoteino to send a waking up sign...")
-        # self.Serial.readline()
+        dprint("Waiting for BaseMoteino to send a waking up sign...", False)
+        self.Serial.readline()
         dprint("We got it!")
         self.SerialLock = threading.Lock()
 
@@ -454,7 +523,7 @@ class MoteinoNetwork:
         There are two reasons for waiting for radio.
             1 - When the base sends a packet and waits for an ACK
                 it is not processing from the serial port. If we would
-                just keep printing more and more packets to send it
+                just keep printing more and more packets to send, it
                 might fill the buffer on the BaseMoteino's serial port
                 and cause lost data.
             2 - It is preferable that devices on the network act mostly
@@ -463,14 +532,14 @@ class MoteinoNetwork:
                 by the master (the users python script). In this case
                 the user should call mynetwork.send() with expect_response
                 as True. This will cause the module to wait until it
-                recieves a packet or the max_wait period.
+                recieves a packet or the max_wait period expires.
 
         :param max_wait: int
         """
         if max_wait is None:
             max_wait = self.max_wait
         counter = 1
-        # dprint("Waiting for radio....")
+        logging.debug("waiting for radio....")
         t = time.time()
         while self.RadioIsBusy:
             # print "waiting..."
@@ -478,7 +547,7 @@ class MoteinoNetwork:
             time.sleep(0.01)
             if (time.time() - t)*1000 > max_wait:
                 break
-        dprint("I waited for radio for " + str((time.time() - t)*1000) + " ms")
+        logging.debug("I waited for radio for " + str((time.time() - t)*1000) + " ms")
 
     def send2radio(self, send2id, payload, max_wait=None):
         """
@@ -489,9 +558,8 @@ class MoteinoNetwork:
         :param max_wait: int
         """
         with self.SerialLock:
-            # dprint("Waiting for radio....")
             self.Serial.write(_hexprints(send2id) + payload + '\n')
-            dprint("we sent: " + _hexprints(send2id) + payload)
+            logging.debug("we sent: " + _hexprints(send2id) + payload + "  to the serial port")
             self.RadioIsBusy = True
             self._wait_for_radio(max_wait=max_wait)
 
@@ -503,8 +571,9 @@ class MoteinoNetwork:
         """
         self.devices[device.Name] = device
         self.devices[device.ID] = device
+        logging.info(str(device) + " added to the network.")
 
-    def add_device(self, name, _id, structstring):
+    def add_device(self, _id, structstring, name=''):
         """
         This function defines a device on the network
         :param name: str
@@ -512,7 +581,8 @@ class MoteinoNetwork:
         :param structstring: str
         """
         if _id == 0xFF:
-            raise ValueError("Device ID can't be 255 (0xFF) because that is ")
+            raise ValueError("Device ID can't be 255 (0xFF) because that " +
+                             "is reserved for the base")
 
         d = Device(network=self,
                    _id=_id,
@@ -522,7 +592,7 @@ class MoteinoNetwork:
 
         return d
 
-    def send_and_receive(self, send2, diction, max_wait=None):
+    def send_and_receive(self, send2, *args, **kwargs):
         """
         This function can be called from top level script. It sends the
         information found in diction to the device specified with send2.
@@ -531,21 +601,16 @@ class MoteinoNetwork:
         being called.
 
         :param send2: str or Device
-        :param diction: dict
         :return: dict
         """
-        self.ReceiveWithSendAndReceive = True
-        temp = id(self.LastReceived)
-        self.send(send2=send2,
-                  diction=diction,
-                  expect_response=True,
-                  max_wait=max_wait)
-        if id(self.LastReceived) != temp:
-            return self.LastReceived
+        if type(send2) is str or type(send2) is int:
+            return self.devices[send2].send_and_receive(*args, **kwargs)
+        elif type(send2) is Device:
+            return send2.send_and_receive(*args, **kwargs)
         else:
-            return None
+            raise ValueError("send2 must be string, int or Device but was " + str(type(send2)))
 
-    def send(self, send2, diction, expect_response=False, max_wait=None):
+    def send(self, send2, *args, **kwargs):
         """
         This function should be called from top level script to send someting.
         Input parameter diction is a dict that contains what should be sent.
@@ -553,16 +618,13 @@ class MoteinoNetwork:
         Any parameter missing in diction will be assumed to be 0
 
         :param send2: str or Device
-        :param diction: dict
-        :param expect_response: bool
-        :param max_wait: int
         """
         if type(send2) is str or type(send2) is int:
-            self.devices[send2].send2radio(diction, expect_response=expect_response, max_wait=max_wait)
+            self.devices[send2].send(*args, **kwargs)
         elif type(send2) is Device:
-            send2.send2radio(diction=diction, expect_response=expect_response, max_wait=max_wait)
+            send2.send(*args, **kwargs)
         else:
-            raise ValueError("send2 must be string or Device but was " + str(type(send2)))
+            raise ValueError("send2 must be string, int or Device but was " + str(type(send2)))
 
     def start_listening(self):  # starts a thread that listens to the serial port
         if not self._serial_listening_thread_is_active:
@@ -583,7 +645,7 @@ class MoteinoNetwork:
         :param sender: Device
         :param diction: dict
         """
-        print "MoteinoNetwork received: " + str(diction) + "from" + sender.Name
+        print("MoteinoNetwork received: " + str(diction) + "from" + sender.Name)
 
     def no_ack(self, sender, last_sent_diction):
         """
@@ -591,14 +653,25 @@ class MoteinoNetwork:
         :param sender: Device
         :param last_sent_diction: dict
         """
-        print "Oh no! We didn't recieve an ACK from " + sender.Name + " when we sent " + str(last_sent_diction)
+        print("Oh no! We didn't recieve an ACK from " + sender.Name + " when we sent " + str(last_sent_diction))
 
     def ack(self, sender, last_sent_diction):
         """
-        This funcion is totally unnecessary.... mostly for debugging but maybe
-        it will be usefull someday to overwrite this with something
+        This function is totally unnecessary.... mostly for debugging but maybe
+        it will be useful someday to overwrite this with something
         :param sender: Device
         :param last_sent_diction: dict
         """
         if self.print_when_acks_recieved:
-            print sender.Name + " responded with an ack when we sent: " + str(last_sent_diction)
+            print(sender.Name + " responded with an ack when we sent: " + str(last_sent_diction))
+
+
+def a(b):
+    d = dir(b)
+    k = b.__dict__.keys()
+    for c in d:
+        if c not in k:
+            print(c)
+    print("-----------")
+    for c in k:
+        print(c)

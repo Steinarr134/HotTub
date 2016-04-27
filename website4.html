@@ -8,8 +8,16 @@
 		<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.12.0/jquery.min.js"></script>
 		<script src="http://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
 		<script type="text/javascript">
-			var Mode;
-			var State
+			var Msg;
+			var ManualTemp = 20;
+			var ManualFlow = 0;
+			var ManualValve = false;
+			var AutoTempMin = 21;
+			var AutoTemp = 22;
+			var InfoString = "bla"
+			console.log("sajsdflkjsdflkj")
+
+
 			if (!("WebSocket" in window))
 	         {
 	            // The browser doesn't support WebSocket
@@ -21,51 +29,191 @@
 	         ws.onmessage = function (evt)
 	         {
 	            var received_msg = evt.data;
-	            var State = JSON.parse(received_msg);
-	            alert("Received message: " + received_msg);
+	            //alert("Received message: " + received_msg);
+	            var Msg = JSON.parse(received_msg);
 	            
-	            update_InfoJumbotron();
-	            if (State['ControlMode']=="Disabled")
+	            if (Msg.Type == "Request")
 	            {
-	            	make_alert_disappear();
+	            	console.log("Received a Request message")
+	            	ManualTemp = Msg.ManualTemp;
+	            	ManualFlow = Msg.ManualFlow;
+	            	ManualValve = Msg.ManualValve
+	            	AutoTemp = Msg.AutoTemp;
 	            }
-	            else
+	            else if (Msg.Type == "Current")
 	            {
-	            	update_alert();
+	            	console.log("Received Currrent: " + Msg.InfoString);
+	            	InfoString = Msg.InfoString;
+	            	update_InfoJumbotron();
+
 	            }
 
-	         };
-
-	         function test()
-	         {
-	         	make_alert_disappear();
-
-	         	alert("test function completed")
+	            update_all();
 	         }
 
-
-	         update_alert = function()
+	         test = function()
 	         {
-	         	document.getElementById("Alert").open();
-	         	document.getElementById("Alert").InnerHTML = State['ControlAlertString'];
+	         	alert("test function completed");
 	         }
 
-	         make_alert_disappear = function()
+	         update_all = function()
 	         {
-
-	         	//document.getElementById("Alert").hide();
-	         	$
+	         	update_ManualTempLabel();
+	         	update_ManualFlowLabel();
+	         	update_AutoTempLabel();
+	         	update_InfoJumbotron();
+	         	update_ManualOpenCloseButton();
 	         }
+
+	         send_request = function(flag)
+	         {
+	         	var Request = {
+	         		"Type" : "Request",
+	         		"Flag" : flag,
+	         		"ManualFlow" : ManualFlow,
+	         		"ManualTemp" : ManualTemp,
+	         		"ManualValve" : ManualValve,
+	         		"AutoTemp" : AutoTemp,
+	         	};
+	         	console.log("send: " + JSON.stringify(Request));
+
+	         }
+	         update_ManualOpenCloseButton = function()
+	         {
+	         	if (ManualValve)
+	         	{
+	         		document.getElementById("ManualOpenCloseButton").innerHTML = "Open - press to close";
+	         	}
+	         	else
+	         	{
+	         		document.getElementById("ManualOpenCloseButton").innerHTML = "Closed - press to open";
+	         	}
+	         }
+
+	         update_AutoTempLabel = function()
+	         {
+	         	if (AutoTemp > 35)
+	         	{
+	         		document.getElementById("AutoTempLabel").innerHTML = "<font size=\"8\">" + AutoTemp + "°C</font>";
+	         	}
+	         	else
+	         	{
+	         		document.getElementById("AutoTempLabel").innerHTML = "<font size=\"8\">Off</font>";
+	         	}
+	         }
+
+	         update_ManualTempLabel = function()
+	         {
+	         	document.getElementById("ManualTempLabel").innerHTML = "<font size=\"8\">" + ManualTemp + "°C</font>";
+	         }
+
+	         update_ManualFlowLabel = function()
+	         {
+	         	document.getElementById("ManualFlowLabel").innerHTML = "<font size=\"8\">" + ManualFlow + "%</font>";
+	         }
+
 
 	         update_InfoJumbotron = function()
 	         {
-	     //     	document.getElementById("InfoJumbotron").innerHTML = 
+	          	document.getElementById("InfoJumbotron").innerHTML = "<h2>StatusReport</h2>\n<p>" + InfoString; + "</p>"
 	     //     	"<h2>
 						// 	Status Report
 						// </h2>
 						// <p>"
 						// + State['InfoString'] +
 						// "</p>";
+	         }
+
+	         ManualOpenCloseFun = function()
+	         {
+	         	ManualValve = !ManualValve;
+	         	update_ManualOpenCloseButton();
+	         	send_request("ManualControlRequest");
+	         }
+
+	         ManualTempUpButtonFun = function()
+	         {
+	         	console.log("ManualTempUpButtonFun()")
+	         	ManualTemp += 1;
+	         	if (ManualTemp > 45)
+	         	{
+	         		ManualTemp = 45;
+	         	}
+	         	else
+	         	{
+		         	update_ManualTempLabel();
+		         	send_request("ManualControlRequest");
+		         }
+	         }
+
+	         ManualTempDownButtonFun = function()
+	         {
+	         	ManualTemp -= 1;
+	         	if (ManualTemp < 10)
+	         	{
+	         		ManualTemp = 10;
+	         	}
+	         	else
+	         	{
+		         	update_ManualTempLabel();
+		         	send_request("ManualControlRequest");
+		         }
+	         }
+
+	         ManualFlowUpButtonFun = function()
+	         {
+	         	ManualFlow += 10;
+	         	if (ManualFlow > 100)
+	         	{
+	         		ManualFlow = 100;
+	         	}
+	         	else
+	         	{
+		         	update_ManualFlowLabel();
+		         	send_request("ManualControlRequest");
+	         	}
+	         }
+
+	         ManualFlowDownButtonFun = function()
+	         {
+	         	ManualFlow -= 10;
+	         	if (ManualFlow < 0)
+	         	{
+	         		ManualFlow = 0;
+	         	}
+	         	else
+	         	{
+		         	update_ManualFlowLabel();
+		         	send_request("ManualControlRequest");
+	         	}
+	         }
+
+	         AutoTempUpButtonFun = function()
+	         {
+	         	AutoTemp += 1;
+	         	if (AutoTemp > 45)
+	         	{
+	         		AutoTemp = 45;
+	         	}
+	         	else
+	         	{
+	         		update_AutoTempLabel();
+	         		send_request();
+	         	}
+	         }
+
+	         AutoTempDownButtonFun = function()
+	         {
+	         	AutoTemp -= 1;
+	         	if (AutoTemp < 35)
+	         	{
+	         		AutoTemp = 35;
+	         	}
+	         	else
+	         	{
+	         		update_AutoTempLabel();
+	         		send_request();
+	         	}
 	         }
 
 	         ws.onclose = function()
@@ -79,7 +227,7 @@
 		<div class="container-fluid">
 			<div class="row">
 				<div class="col-md-12">
-					<button onclick="test();">Blabla</button>
+					<button onclick="test();">sdfsdfsdf</button>
 					<!-- <div id="Alert" class="alert alert-success">
 						<h4>
 							Alert!
@@ -98,10 +246,10 @@
 					<div class="tabbable" id="tabs-903533">
 						<ul class="nav nav-tabs">
 							<li class="active">
-								<a href="#panel-Auto" data-toggle="tab">Section 1</a>
+								<a href="#panel-Auto" data-toggle="tab">Auto</a>
 							</li>
 							<li>
-								<a href="#panel-Manual" data-toggle="tab">Section 2</a>
+								<a href="#panel-Manual" data-toggle="tab">Manual</a>
 							</li>
 						</ul>
 						<div class="tab-content">
@@ -110,50 +258,50 @@
 									<div class="col-xs-2 col-md-1">
 										 
 										<div class="btn-group-vertical">
-											<button id="AutoTempUp"   type="button" class="btn btn-primary">+</button>
-											<button id="AutoTempDown" type="button" class="btn btn-primary">-</button>
+											<button id="AutoTempUpButton"   type="button" class="btn btn-primary" onclick="AutoTempUpButtonFun();">+</button>
+											<button id="AutoTempDownButton" type="button" class="btn btn-primary" onclick="AutoTempDownButtonFun();">-</button>
 										</div>
 									</div>
 									<div class="col-xs-4 col-md-1">
-										<p id="Temp1"><font size="8">Temp1</font></p>
+										<p id="AutoTempLabel"><font size="8">Temp1</font></p>
 									</div>
 								</div>
-								<div class="row">
+								<!-- <div class="row">
 									<div class="col-xs-12 col-md-3">
 										<button id="AutoOpenClose" type="button" class="btn btn-lg btn-block btn-default active">
 											Default
 										</button>
 									</div>
-								</div>
+								</div> -->
 							</div>
 							<div class="tab-pane fade" id="panel-Manual">
 								<div class="row">
 									<div class="col-xs-2 col-md-1">
 										 
 										<div class="btn-group-vertical">
-											<button id="ManualTempUp"   type="button" class="btn btn-primary">+</button>
-											<button id="ManualTempDown" type="button" class="btn btn-primary">-</button>
+											<button id="ManualTempUpButton"   type="button" class="btn btn-primary" onclick="ManualTempUpButtonFun();">+</button>
+											<button id="ManualTempDownButton" type="button" class="btn btn-primary" onclick="ManualTempDownButtonFun();">-</button>
 										</div>
 									</div>
 									<div class="col-xs-10 col-md-2">
-										<p id="Temp2"><font size="8">XX°C</font></p>
+										<p id="ManualTempLabel"><font size="8">XX°C</font></p>
 									</div>
 									<div class="col-xs-3-offset-7 col-md-2">
 										 <div class="col-xs-10 col-md-1">
-											<p id="Flow2" align="right"><font size="8">100%</font></p>
+											<p id="ManualFlowLabel" align="right"><font size="8">100%</font></p>
 										</div>
 									</div>
 									<div class="col-xs-2 col-md-1">
 										<div class="btn-group-vertical">
-											<button id="ManualFlowUp"   type="button" class="btn btn-primary">+</button>
-											<button id="ManualFlowdown" type="button" class="btn btn-primary">-</button>
+											<button id="ManualFlowUpButton"   type="button" class="btn btn-primary" onclick="ManualFlowUpButtonFun();">+</button>
+											<button id="ManualFlowdownButton" type="button" class="btn btn-primary" onclick="ManualFlowDownButtonFun();">-</button>
 										</div>
 									</div>
 								</div>
 								<div class="row">
 									<div class="col-md-6">
-										<button id="ManualOpenClose" type="button" class="btn btn-lg btn-block btn-default active">
-											Default
+										<button id="ManualOpenCloseButton" type="button" class="btn btn-lg btn-block btn-default active" onclick="ManualOpenCloseFun();">
+											Defaultsdf
 										</button>
 									</div>
 								</div>

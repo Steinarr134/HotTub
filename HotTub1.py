@@ -1,7 +1,6 @@
 import atexit
 import json
 from apscheduler.schedulers.background import BackgroundScheduler
-import subprocess
 import threading
 import time
 import select
@@ -9,11 +8,12 @@ import socket
 from datetime import datetime
 from MoteinoBeta import MoteinoNetwork
 import logging
+import demjson
 # from PID import PID
 logging.basicConfig()
 
-scheduler = BackgroundScheduler()
-scheduler.start()
+Scheduler = BackgroundScheduler()
+Scheduler.start()
 
 
 def dprint(*args):
@@ -55,17 +55,9 @@ class State(object):
 
 # it is commented out because it is not in use as of yet
 
-class MyNetwork(MoteinoNetwork):
-    def __init__(self):
-        MoteinoNetwork.__init__(self, port='/dev/ttyAMA0', baudrate=115200)
-        
-    def recieve(self, diction):  # overwrite this to respond
-        print "mynetwork received: "
-        print diction
-
 
 # instantiate MyNetwork
-mynetwork = MyNetwork()
+mynetwork = MoteinoNetwork("COM50")
 
 
 class ReactFunThread(threading.Thread):
@@ -111,7 +103,7 @@ class Listen2socketThread(threading.Thread):
 
 
 def _add_one_time_job(func, after):
-    scheduler.add_job(func, 'date',
+    Scheduler.add_job(func, 'date',
                       run_date=datetime.fromtimestamp(time.time() + after))
 
 
@@ -192,31 +184,39 @@ class HotTub(object):
 
         # Start a socket that communicates with websocket server
         self.WSsocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.WSsocket.connect(('', 12345))
+        self.WSsocket.connect(('localhost', 12345))
         dprint("successfully connected to WS")
 
         # start a thread that listens to this socket
         self.WSlistener = Listen2socketThread(self.WSsocket, self.request)
         self.WSlistener.start()
 
-        # wait a bit for socket stuff to start and then send current state
+        # wait a bit for socket stuff to start
         time.sleep(0.2)
-        self.send_current_state()
         
         # create Devices on the network
-        self.Fosset = self.Network.add_device("Fosset",
-                                              21,
+        self.Fosset = self.Network.add_device(21,
                                               "int Command;" +
                                               "byte Flow;" +
-                                              "int Temp;")
-        self.UnderTub = self.Network.add_device("UnderTub",
-                                                22,
+                                              "int Temp;",
+                                              "Fosset")
+        self.UnderTub = self.Network.add_device(22,
                                                 "int Command;" +
                                                 "int PipeTemp;" +
                                                 "int HotTubTemp;" +
                                                 "int OutsideTemp;" + 
                                                 "bool ValveIsOpen;" +
-                                                "int OverflowTemp")
+                                                "int OverflowTemp",
+                                                "UnderTub")
+        self.Fosset.add_translation('Command',
+                                    ('Unfreeze', 2101),
+                                    ('Regulate', 2102),
+                                    ('Status', 99))
+        self.UnderTub.add_translation('Command',
+                                      ('Status', 99),
+                                      ('OpenValve', 2201),
+                                      ('CloseValve', 2202))
+
         # A dict for our commands to make code more readable
         self.Commands = {'Unfreeze': 2101,
                          'Regulate': 2102,
@@ -246,13 +246,39 @@ class HotTub(object):
                                                     hours=2)
         self._OverflowTempThreshold = 250
         self.Flag_A = False
+        self.LastUnderTubStatus = self.UnderTub.send_and_receive("Status")
+        self.Mode = None
+        self.LastPipePreventionString = ''
+
+        self.send_current_state()
 
     def send_current_state(self):
-        self.WSsocket.send(self.CurrentState.encode())
+        w2s = dict()
+        w2s['Type'] = "Current"
+        fossetinfo = str(self.Fosset.LastSent['Temp']) + "dC - " + str(self.Fosset.LastSent['Flow']) + "%\n"
+        d = self.LastUnderTubStatus
+        print d
+        if self.Mode == "Manual":
+            temp1 = "Manual mode active : " + fossetinfo
+        elif self.Mode == "Auto":
+            temp1 = "Auto mode active : " + str(self.RequestedState.Temp)
+        else:
+            temp1 = "I'm not trying anything...."
+        print "HERNAAAAAAAAAA " + self.LastPipePreventionString
+        w2s['InfoString'] = str(
+            temp1 +
+            "HotTub : " + str(d['HotTubTemp']) + "dC\n" +
+            "Overflow : " + str(d['OverFlowTemp']) + "dC\n"
+            # "Outside : " + str(d['OutsideTemp']) + "dC\n" +
+            # "Pipe : " + str(d['PipeTemp']) + "dC\n" +
+            # "Fosset : " + fossetinfo +
+            # "LastPipeFreezePrevention : " + str(self.LastPipePreventionString) + "\n"
+        )
+        self.WSsocket.send(demjson.encode(w2s))
 
     def prevent_freezing(self):
         print "Here I come to save the day!... by preventing pipe freezing"
-        d = self.UnderTub.send_and_receive({'Command': self.Commands['Status']})
+        d = self.UnderTub.send_and_receive('Status')
         if not d:
             print "prevent_freezing <- UnderTub is not responding!!!"
         else:
@@ -260,9 +286,10 @@ class HotTub(object):
                 if d['PipeTemp'] < 20:
                     print "It's my time to shine! There'll be no pipe freezing today mister!"
                     if not d['ValveIsOpen']:
-                        self.UnderTub.send({'Command': self.Commands['OpenValve']})
-                    self.Fosset.send({'Command': self.Commands['Unfreeze']})
+                        self.UnderTub.send('OpenValve')
+                    self.Fosset.send('Unfreeze')
                     # sending unfreeze means it will send hot water through for 60 seconds
+                    self.LastPipePreventionString = time.strftime("%A %d %B at %X")
 
     def request(self, incoming):
         dprint("Request received: ", incoming)
@@ -273,29 +300,36 @@ class HotTub(object):
             self.handle_request(incoming)
         
     def handle_request(self, incoming):
-        self.RequestedState.decode_and_become(incoming)
-        print "We are going for: " + str(self.RequestedState)
-        if self.RequestedState.Full:
-            self.UnderTub.send({'Command': self.Commands['CloseValve']})
-            self.Fosset.send({'Command': self.Commands['Regulate'],
-                              'Flow': 100,
-                              'Temp': self.RequestedState.Temp*10})
-            self.RegulateJob.resume()
-            _add_one_time_job(self.empty, 60*60*4)  # in 4 hours
-        else:
-            self.empty()
+        received = demjson.decode(incoming)
+        print received
+        if received["Type"] == "Request":
+            if received['Flag'] == "ManualControlRequest":
+                # directly send the manual control request
+                self.Fosset.send(Command='Regulate',
+                                 Flow=received['Flow'],
+                                 Temp=received['Temp'])
+                self.UnderTub.send("OpenValve" if received['ManualValve'] else "CloseValve")
+            elif received['Flag'] == "AutoControlRequest":
+                self.RequestedState.Full = True
+                self.RequestedState.Temp = received['Temp']
+                self._start_regulating()
+                _add_one_time_job(self.empty, 4*60*60)
+
+            elif received['Flag'] == "AutoEmptyRequest":
+                self.empty()
             
     def empty(self):
         self.RequestedState.Full = False
         self.RegulateJob.pause()
-        self.Fosset.send({'Command': self.Commands['Off']})
-        self.UnderTub.send({'Command': self.Commands['OpenValve']})
+        self.Fosset.send('Off')
+        self.UnderTub.send('OpenValve')
 
     def update_current_state(self):
-        d = self.UnderTub.send_and_receive({'Command': self.Commands['Status']})
+        d = self.UnderTub.send_and_receive('Status')
         if d:
             self.CurrentState.Full = d['OverflowTemp'] > self._OverflowTempThreshold
             self.CurrentState.Temp = d['HotTubTemp']/float(10)
+            self.LastUnderTubStatus = d
             self.send_current_state()
             return True
         else:
@@ -305,20 +339,20 @@ class HotTub(object):
     def _start_regulating(self):
         # self.controller = HotTubController(self.RequestedState.Temp)
         self.Flag_A = True
-        scheduler.add_job(self._regulate,
-                          'interval',
-                          id='HotTubRegulate',
-                          replace_existing=True,
-                          seconds=30)
+        self.Scheduler.add_job(self._regulate,
+                               'interval',
+                               id='HotTubRegulate',
+                               replace_existing=True,
+                               seconds=30)
 
     def _regulate(self):
         print "regulating..."
         success = self.update_current_state()
         if success:
             if self.CurrentState.Full and self.Flag_A:
-                success = self.Fosset.send({'Command': self.Commands['Regulate'],
-                                            'Flow': 20,
-                                            'Temp': self.RequestedState.Temp})
+                success = self.Fosset.send(Command='Regulate',
+                                           Flow=20,
+                                           Temp=self.RequestedState.Temp)
                 if success:
                     self.Flag_A = False
                     print "I changed things to slower flow and such"
@@ -366,7 +400,7 @@ class HotTub(object):
     #        self.Fosset.send({'Command': self.Commands['Regulate'],
     #                          'Flow': flow,
     #                          'Temp': temp})
-hottub = HotTub(mynetwork, scheduler)
+hottub = HotTub(mynetwork, Scheduler)
 
 
 def cleanup():
@@ -378,6 +412,6 @@ atexit.register(cleanup)
 
 # The system is now completely set up and we'll do nothing forever
 
-time.sleep(1000)
+time.sleep(-1)
 
 # If we make it past that while loop than the system will exit
